@@ -63,6 +63,11 @@ def impute_sequence_batch(
     num_steps: int = 50,
     inner_resamples: int = 20,
 ) -> torch.Tensor:
+    if num_steps < 2:
+        raise ValueError("num_steps must be >= 2")
+    if inner_resamples < 1:
+        raise ValueError("inner_resamples must be >= 1")
+
     device = init_batch.device
     step_indices = torch.arange(num_steps, dtype=torch.float32, device=device)
 

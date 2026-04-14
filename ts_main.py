@@ -61,8 +61,12 @@ def validate_config(config: TSExperimentConfig) -> None:
         if getattr(config, field_name) <= 0:
             raise ValueError(f"{field_name} must be positive")
 
+    if config.num_steps < 2:
+        raise ValueError("num_steps must be >= 2")
     if config.early_stopping_patience <= 0:
         raise ValueError("early_stopping_patience must be positive")
+    if config.inner_resamples < 1:
+        raise ValueError("inner_resamples must be >= 1")
     if config.length_scale <= 0.0:
         raise ValueError("length_scale must be positive")
     if config.signal_std <= 0.0:

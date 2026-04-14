@@ -49,18 +49,31 @@ def generate_random_missing_mask(
     seq_len: int,
     missing_rate: float,
     seed: int,
+    max_retries: int = 128,
 ) -> np.ndarray:
     if not 0.0 < missing_rate < 1.0:
         raise ValueError("missing_rate must be in (0, 1)")
+    if seq_len < 2:
+        raise ValueError("seq_len must be at least 2 to allow both observed and missing points")
+    if max_retries < 0:
+        raise ValueError("max_retries must be non-negative")
 
     rng = np.random.default_rng(seed)
     mask = rng.random((num_series, seq_len)) < missing_rate
     valid = mask.any(axis=1) & (~mask).any(axis=1)
+    retries = 0
 
-    while not np.all(valid):
+    while not np.all(valid) and retries < max_retries:
         invalid_count = int((~valid).sum())
         mask[~valid] = rng.random((invalid_count, seq_len)) < missing_rate
         valid = mask.any(axis=1) & (~mask).any(axis=1)
+        retries += 1
+
+    if not np.all(valid):
+        raise RuntimeError(
+            "failed to generate valid missing masks within max_retries; "
+            "try a larger seq_len or a less extreme missing_rate"
+        )
 
     return mask[:, None, :]
 

@@ -8,9 +8,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from ts_data import build_split, linear_interpolate_fill, make_time_grid, sample_gp_sequences
+from ts_data import build_split, generate_random_missing_mask, linear_interpolate_fill, make_time_grid, sample_gp_sequences
 from ts_diffusion import impute_sequence_batch
-from ts_main import TSExperimentConfig, run_experiment
+from ts_main import TSExperimentConfig, run_experiment, validate_config
 from ts_model import EDMPrecond1D, TimeSeriesUNet1D
 
 
@@ -28,6 +28,10 @@ class TimeSeriesPrototypeTests(unittest.TestCase):
         mask = split.missing_mask[:, 0, :]
         self.assertTrue(np.all(mask.any(axis=1)))
         self.assertTrue(np.all((~mask).any(axis=1)))
+
+    def test_random_missing_mask_raises_after_retry_budget_exhausted(self) -> None:
+        with self.assertRaises(RuntimeError):
+            generate_random_missing_mask(num_series=16, seq_len=2, missing_rate=0.999, seed=3, max_retries=0)
 
     def test_linear_interpolation_preserves_observed_values_and_removes_nans(self) -> None:
         observed = np.array([[[1.0, 0.0, 0.0, 4.0, 0.0]]], dtype=np.float32)
@@ -63,6 +67,12 @@ class TimeSeriesPrototypeTests(unittest.TestCase):
         )
         observed_positions = ~missing_mask
         self.assertTrue(torch.allclose(imputed[observed_positions], init_batch[observed_positions]))
+
+    def test_validate_config_rejects_invalid_sampling_controls(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_config(TSExperimentConfig(num_steps=1))
+        with self.assertRaises(ValueError):
+            validate_config(TSExperimentConfig(inner_resamples=0))
 
     def test_tiny_end_to_end_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
