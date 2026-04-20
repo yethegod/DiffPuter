@@ -17,14 +17,14 @@ from ts_model import EDMPrecond1D, TimeSeriesUNet1D
 
 @dataclass
 class TSExperimentConfig:
-    seq_len: int = 128
+    seq_len: int = 256
     n_train: int = 10000
     n_val: int = 1000
     n_test: int = 1000
     missing_rate: float = 0.3
-    signal_std: float = 1.0
-    length_scale: float = 0.15
-    obs_noise_std: float = 0.05
+    signal_variance: float = 1.0
+    length_scale: float = 8.0
+    noise_variance: float = 0.05
     em_iters: int = 5
     epochs: int = 200
     batch_size: int = 128
@@ -69,10 +69,10 @@ def validate_config(config: TSExperimentConfig) -> None:
         raise ValueError("inner_resamples must be >= 1")
     if config.length_scale <= 0.0:
         raise ValueError("length_scale must be positive")
-    if config.signal_std <= 0.0:
-        raise ValueError("signal_std must be positive")
-    if config.obs_noise_std < 0.0:
-        raise ValueError("obs_noise_std must be non-negative")
+    if config.signal_variance <= 0.0:
+        raise ValueError("signal_variance must be positive")
+    if config.noise_variance < 0.0:
+        raise ValueError("noise_variance must be non-negative")
     if config.lr <= 0.0:
         raise ValueError("lr must be positive")
 
@@ -96,25 +96,25 @@ def _build_splits(config: TSExperimentConfig) -> dict[str, TimeSeriesSplit]:
     full_train = sample_gp_sequences(
         num_series=config.n_train,
         time_grid=time_grid,
-        signal_std=config.signal_std,
+        signal_variance=config.signal_variance,
         length_scale=config.length_scale,
-        obs_noise_std=config.obs_noise_std,
+        noise_variance=config.noise_variance,
         seed=config.seed,
     )
     full_val = sample_gp_sequences(
         num_series=config.n_val,
         time_grid=time_grid,
-        signal_std=config.signal_std,
+        signal_variance=config.signal_variance,
         length_scale=config.length_scale,
-        obs_noise_std=config.obs_noise_std,
+        noise_variance=config.noise_variance,
         seed=config.seed + 1,
     )
     full_test = sample_gp_sequences(
         num_series=config.n_test,
         time_grid=time_grid,
-        signal_std=config.signal_std,
+        signal_variance=config.signal_variance,
         length_scale=config.length_scale,
-        obs_noise_std=config.obs_noise_std,
+        noise_variance=config.noise_variance,
         seed=config.seed + 2,
     )
 
@@ -354,15 +354,15 @@ def run_experiment(config: TSExperimentConfig) -> dict[str, Any]:
 
 
 def parse_args() -> TSExperimentConfig:
-    parser = argparse.ArgumentParser(description="Phase-1 time-series GP imputation prototype")
-    parser.add_argument("--seq-len", type=int, default=128)
+    parser = argparse.ArgumentParser(description="Phase-1 time-series Gaussian/RBF imputation prototype")
+    parser.add_argument("--seq-len", type=int, default=256)
     parser.add_argument("--n-train", type=int, default=10000)
     parser.add_argument("--n-val", type=int, default=1000)
     parser.add_argument("--n-test", type=int, default=1000)
     parser.add_argument("--missing-rate", type=float, default=0.3)
-    parser.add_argument("--signal-std", type=float, default=1.0)
-    parser.add_argument("--length-scale", type=float, default=0.15)
-    parser.add_argument("--obs-noise-std", type=float, default=0.05)
+    parser.add_argument("--signal-variance", type=float, default=1.0)
+    parser.add_argument("--length-scale", type=float, default=8.0)
+    parser.add_argument("--noise-variance", type=float, default=0.05)
     parser.add_argument("--em-iters", type=int, default=5)
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--batch-size", type=int, default=128)
@@ -378,9 +378,9 @@ def parse_args() -> TSExperimentConfig:
         n_val=args.n_val,
         n_test=args.n_test,
         missing_rate=args.missing_rate,
-        signal_std=args.signal_std,
+        signal_variance=args.signal_variance,
         length_scale=args.length_scale,
-        obs_noise_std=args.obs_noise_std,
+        noise_variance=args.noise_variance,
         em_iters=args.em_iters,
         epochs=args.epochs,
         batch_size=args.batch_size,

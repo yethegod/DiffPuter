@@ -14,33 +14,46 @@ class TimeSeriesSplit:
 
 
 def make_time_grid(seq_len: int) -> np.ndarray:
-    return np.linspace(0.0, 1.0, seq_len, dtype=np.float32)
+    return np.arange(seq_len, dtype=np.float32)
+
+
+def rbf_kernel_covariance(
+    time_grid: np.ndarray,
+    signal_variance: float,
+    length_scale: float,
+    noise_variance: float,
+) -> np.ndarray:
+    deltas = time_grid[:, None] - time_grid[None, :]
+    covariance = signal_variance * np.exp(-(deltas**2) / (2.0 * (length_scale**2)))
+    covariance = covariance.astype(np.float32)
+    covariance += np.eye(time_grid.shape[0], dtype=np.float32) * (noise_variance + 1e-6)
+    return covariance
 
 
 def sample_gp_sequences(
     num_series: int,
     time_grid: np.ndarray,
-    signal_std: float,
+    signal_variance: float,
     length_scale: float,
-    obs_noise_std: float,
+    noise_variance: float,
     seed: int,
 ) -> np.ndarray:
     if num_series <= 0:
         raise ValueError("num_series must be positive")
 
-    deltas = time_grid[:, None] - time_grid[None, :]
-    covariance = (signal_std**2) * np.exp(-(deltas**2) / (2.0 * (length_scale**2)))
-    covariance = covariance.astype(np.float32)
-    covariance += np.eye(time_grid.shape[0], dtype=np.float32) * 1e-6
+    covariance = rbf_kernel_covariance(
+        time_grid=time_grid,
+        signal_variance=signal_variance,
+        length_scale=length_scale,
+        noise_variance=noise_variance,
+    )
 
     rng = np.random.default_rng(seed)
-    chol = np.linalg.cholesky(covariance).astype(np.float32)
-    standard_normal = rng.standard_normal((num_series, time_grid.shape[0])).astype(np.float32)
-    samples = standard_normal @ chol.T
-
-    if obs_noise_std > 0.0:
-        samples += rng.normal(0.0, obs_noise_std, size=samples.shape).astype(np.float32)
-
+    samples = rng.multivariate_normal(
+        mean=np.zeros(time_grid.shape[0], dtype=np.float32),
+        cov=covariance,
+        size=num_series,
+    )
     return samples[:, None, :].astype(np.float32)
 
 

@@ -8,17 +8,36 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from ts_data import build_split, generate_random_missing_mask, linear_interpolate_fill, make_time_grid, sample_gp_sequences
+from ts_data import (
+    build_split,
+    generate_random_missing_mask,
+    linear_interpolate_fill,
+    make_time_grid,
+    rbf_kernel_covariance,
+    sample_gp_sequences,
+)
 from ts_diffusion import impute_sequence_batch
 from ts_main import TSExperimentConfig, run_experiment, validate_config
 from ts_model import EDMPrecond1D, TimeSeriesUNet1D
 
 
 class TimeSeriesPrototypeTests(unittest.TestCase):
+    def test_time_grid_and_covariance_match_gaussian_datamodule_semantics(self) -> None:
+        time_grid = make_time_grid(5)
+        covariance = rbf_kernel_covariance(
+            time_grid=time_grid,
+            signal_variance=1.0,
+            length_scale=8.0,
+            noise_variance=0.05,
+        )
+
+        self.assertTrue(np.array_equal(time_grid, np.arange(5, dtype=np.float32)))
+        self.assertTrue(np.allclose(np.diag(covariance), np.full(5, 1.05 + 1e-6, dtype=np.float32)))
+
     def test_gp_generation_is_reproducible(self) -> None:
         time_grid = make_time_grid(32)
-        sample_a = sample_gp_sequences(4, time_grid, 1.0, 0.15, 0.05, seed=7)
-        sample_b = sample_gp_sequences(4, time_grid, 1.0, 0.15, 0.05, seed=7)
+        sample_a = sample_gp_sequences(4, time_grid, 1.0, 8.0, 0.05, seed=7)
+        sample_b = sample_gp_sequences(4, time_grid, 1.0, 8.0, 0.05, seed=7)
         self.assertEqual(sample_a.shape, (4, 1, 32))
         self.assertTrue(np.allclose(sample_a, sample_b))
 
