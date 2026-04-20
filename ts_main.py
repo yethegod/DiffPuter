@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
+from tqdm import tqdm
 
 from ts_data import TimeSeriesSplit, build_split, make_time_grid, masked_mae_rmse, sample_gp_sequences
 from ts_diffusion import EDMLoss1D, impute_sequence_batch
@@ -165,6 +166,7 @@ def _train_one_iteration(
     val_input: np.ndarray,
     iteration_dir: Path,
     device: str,
+    iteration_idx: int,
 ) -> tuple[EDMPrecond1D, dict[str, float]]:
     denoise_fn = TimeSeriesUNet1D(
         in_channels=1,
@@ -184,7 +186,13 @@ def _train_one_iteration(
 
     last_train_loss = float("inf")
     epochs_ran = 0
-    for epoch in range(config.epochs):
+    epoch_iterator = tqdm(
+        range(config.epochs),
+        desc=f"[ts] iter {iteration_idx} train",
+        disable=not config.verbose,
+        leave=False,
+    )
+    for epoch in epoch_iterator:
         net.train()
         total_loss = 0.0
         total_count = 0
@@ -213,6 +221,12 @@ def _train_one_iteration(
             if epochs_without_improvement >= config.early_stopping_patience:
                 break
 
+        epoch_iterator.set_postfix(
+            train_loss=f"{last_train_loss:.4f}",
+            val_loss=f"{val_loss:.4f}",
+            best_val=f"{best_val_loss:.4f}",
+        )
+
     state = torch.load(best_path, map_location=device)
     net.load_state_dict(state["state_dict"])
 
@@ -231,11 +245,19 @@ def _impute_split(
     init_sequences: np.ndarray,
     config: TSExperimentConfig,
     device: str,
+    split_name: str,
+    iteration_idx: int,
 ) -> np.ndarray:
     outputs = []
     net.eval()
 
-    for start_idx in range(0, init_sequences.shape[0], config.batch_size):
+    batch_iterator = tqdm(
+        range(0, init_sequences.shape[0], config.batch_size),
+        desc=f"[ts] iter {iteration_idx} impute {split_name}",
+        disable=not config.verbose,
+        leave=False,
+    )
+    for start_idx in batch_iterator:
         end_idx = start_idx + config.batch_size
         init_batch = torch.from_numpy(init_sequences[start_idx:end_idx]).to(device).float()
         observed_batch = torch.from_numpy(split.observed[start_idx:end_idx]).to(device).float()
@@ -299,7 +321,12 @@ def run_experiment(config: TSExperimentConfig) -> dict[str, Any]:
     best_iteration = -1
     best_val_rmse = float("inf")
 
-    for iteration in range(config.em_iters):
+    outer_iterator = tqdm(
+        range(config.em_iters),
+        desc="[ts] outer iterations",
+        disable=not config.verbose,
+    )
+    for iteration in outer_iterator:
         iteration_dir = ckpt_dir / f"iter_{iteration}"
         iteration_dir.mkdir(parents=True, exist_ok=True)
 
@@ -312,11 +339,18 @@ def run_experiment(config: TSExperimentConfig) -> dict[str, Any]:
             val_input=splits["val"].linear_init,
             iteration_dir=iteration_dir,
             device=device,
+            iteration_idx=iteration,
         )
 
-        train_imputed = _impute_split(net, splits["train"], train_input, config, device)
-        val_imputed = _impute_split(net, splits["val"], splits["val"].linear_init, config, device)
-        test_imputed = _impute_split(net, splits["test"], splits["test"].linear_init, config, device)
+        train_imputed = _impute_split(
+            net, splits["train"], train_input, config, device, split_name="train", iteration_idx=iteration
+        )
+        val_imputed = _impute_split(
+            net, splits["val"], splits["val"].linear_init, config, device, split_name="val", iteration_idx=iteration
+        )
+        test_imputed = _impute_split(
+            net, splits["test"], splits["test"].linear_init, config, device, split_name="test", iteration_idx=iteration
+        )
 
         iteration_metrics = {
             "train": masked_mae_rmse(train_imputed, splits["train"].full, splits["train"].missing_mask),
@@ -338,6 +372,10 @@ def run_experiment(config: TSExperimentConfig) -> dict[str, Any]:
             best_iteration = iteration
 
         train_input = _combine_with_observed(splits["train"], train_imputed)
+        outer_iterator.set_postfix(
+            best_iter=best_iteration,
+            best_val_rmse=f"{best_val_rmse:.4f}",
+        )
 
     result_payload["best_iteration"] = best_iteration
     result_payload["best_val_rmse"] = best_val_rmse
